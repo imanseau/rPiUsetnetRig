@@ -4,6 +4,8 @@ The quickest way to set up a Raspberry Pi 2 model B as a Usenet downloading rig.
 
 To Install/Use
 
+```
 wget https://raw.githubusercontent.com/imanseau/rPiUsetnetRig/master/rPiUsetnetRig-Config
 chmod +x rPiUsenetRig-Config
 sudo ./rPiUsenetRig-Config
+```
