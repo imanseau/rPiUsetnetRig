@@ -498,7 +498,7 @@ EOF
 
 calc_wt_size
 while true; do
-	FUN=$(whiptail --title "rPiUsenetRig-Config - Raspberry Pi Usenet Downloading Configuration Tool" --menu "Setup Options" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT --cancel-button Finish --ok-button Select \
+	FUN=$(whiptail --title "Raspberry Pi Usenet Downloading Configuration Tool" --menu "Setup Options" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT --cancel-button Finish --ok-button Select \
 		"1 RasPi-Config" "Run this if fresh OS install to set up the basics!" \
 		"2 Add Google Name Servers" "Add Google Name Servers because it's a good idea!" \
 		"3 The UPs" "Update & Upgrade your Pi's software before doing anything!" \
@@ -507,7 +507,7 @@ while true; do
 		"6 NZBGet" "Install the Usenet Downloader" \
 		"7 Sonarr" "Install Usenet TV Show Manager" \
 		"8 CouchPotato" "Install Usenet Movie Manager" \
-		"9 About" "Information about this configuration tool" \
+		"9 About rPiUsenetRig-Config" "Information about this configuration tool" \
 		3>&1 1>&2 2>&3)
 		RET=$?
 		if [ $RET -eq 1 ]; then
