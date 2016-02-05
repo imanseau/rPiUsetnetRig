@@ -1,0 +1,532 @@
+#!/bin/bash
+
+# Check that script is run as root
+FILE="/tmp/out.$$"
+GREP="/bin/grep"
+#....
+# Make sure only root can run our script
+if [[ $EUID -ne 0 ]]; then
+	whiptail --title "Oops!" --msgbox "You need to run this as root! Choose Ok to continue." 10 60
+	exit 1
+fi
+# ...
+
+ASK_TO_REBOOT=0
+
+calc_wt_size() {
+	# NOTE: it's tempting to redirect stderr to /dev/null, so supress error 
+	# output from tput. However in this case, tput detects neither stdout or 
+	# stderr is a tty and so only gives default 80, 24 values
+	WT_HEIGHT=17
+	WT_WIDTH=$(tput cols)
+
+	if [ -z "$WT_WIDTH" ] || [ "$WT_WIDTH" -lt 60 ]; then
+		WT_WIDTH=80
+	fi
+	if [ "$WT_WIDTH" -gt 178 ]; then
+		WT_WIDTH=120
+	fi
+	WT_MENU_HEIGHT=$(($WT_HEIGHT-7))
+}
+
+do_about() {
+	whiptail --msgbox "\
+This tool provides a straight-forward way of setting up
+a Pi as a Usenet downloader.\
+" 20 70 1
+}
+
+do_finish() {
+	if [ $ASK_TO_REBOOT -eq 1 ]; then
+		whiptail --yesno "Would you like to reboot now?" 20 60 2
+		if [ $? -eq 0 ]; then # yes
+			sync
+			reboot
+		fi
+	fi
+	exit 0
+}
+
+do_google() {
+	sed -i '$a\nameserver 8.8.8.8' /etc/resolv.conf 
+	sed -i '$a\nameserver 8.8.4.4' /etc/resolv.conf
+	whiptail --title "Google Name Servers" --msgbox "Google Name Servers have been added. Choose Ok to continue." 10 60
+}
+
+do_the_ups() {
+	apt-get update
+	apt-get upgrade -y
+	whiptail --title "The UPs" --msgbox "Your Pi has been Updated & Upgraded. Choose Ok to continue." 10 60
+}
+
+do_vpn_server() {
+  FUN=$(whiptail --title "VPN Server Location - Where do you wish to exit?" --menu "Where do you wish to exit?" $WT_HEIGHT 75 $WT_MENU_HEIGHT --ok-button Select \
+		"1 AU - Melbourne" "99000 Mbps" \
+		"2 AU - Sydney" "75000 Mbps" \
+		"3 Brazil" "20000 Mbps" \
+		"4 CA - North York" "129000 Mbps" \
+		"5 CA - Toronto" "64000 Mbps" \
+		"6 Denmark" "10000 Mbps" \
+		"7 France" "54000 Mbps" \
+		"8 Germany" "63000 Mbps" \
+		"9 Hong Kong" "20000 Mbps" \
+		"10 India" "10000 Mbps" \
+		"11 Ireland" "10000 Mbps" \
+		"12 Israel" "12000 Mbps" \
+		"13 Italy" "20000 Mbps" \
+		"14 Japan" "20000 Mbps" \
+		"15 Mexico" "25000 Mbps" \
+		"16 Netherlands" "200000 Mbps" \
+		"17 New Zealand" "10000 Mbps" \
+		"18 Norawy" "10000 Mbps" \
+		"19 Romania" "17000 Mbps" \
+		"20 Russia" "10000 Mbps" \
+		"21 Singapore" "20000 Mbps" \
+		"22 Sweden" "47000 Mbps" \
+		"23 Switzerland" "71000 Mbps" \
+		"24 Turkey" "10000 Mbps" \
+		"25 UK - London" "156000 Mbps" \
+		"26 UK - Southampton" "77000 Mbps" \
+		"27 US - California" "220000 Mbps" \
+		"28 US - East" "427000 Mbps" \
+		"29 US - Midwest" "304000 Mbps" \
+		"30 US - Texas" "194000 Mbps" \
+		"31 US - Florida" "114000 Mbps" \
+		"32 US - Seattle" "105000 Mbps" \
+		"33 US - West" "85000 Mbps" \
+		"34 US - Silicon Valley" "132000 Mbps" \
+		"35 US - New York City" "99000 Mbps" \
+		3>&1 1>&2 2>&3)
+
+	RET=$?
+	if [ $RET -eq 1 ]; then
+		return 0
+	elif [ $RET -eq 0 ]; then
+		case "$FUN" in
+			1\ *) server="AU_Melbourne" ;;
+			2\ *) server="AU_Sydney" ;;
+			3\ *) server="Brazil" ;;
+			4\ *) server="CA_North_York" ;;
+      5\ *) server="CA_Toronto" ;;
+      6\ *) server="Denmark" ;;
+      7\ *) server="France" ;;
+      8\ *) server="Germany" ;;
+      9\ *) server="Hong_Kong" ;;
+      10\ *) server="India" ;;
+      11\ *) server="Ireland" ;;
+      12\ *) server="Israel" ;;
+      13\ *) server="Italy" ;;
+      14\ *) server="Japan" ;;
+      15\ *) server="Mexico" ;;
+      16\ *) server="Netherlands" ;;
+      17\ *) server="New_Zealand" ;;
+      18\ *) server="Norawy" ;;
+      19\ *) server="Romania" ;;
+      20\ *) server="Russia" ;;
+      21\ *) server="Singapore" ;;
+      22\ *) server="Sweden" ;;
+      23\ *) server="Switzerland" ;;
+      24\ *) server="Turkey" ;;
+      25\ *) server="UK_London" ;;
+      26\ *) server="UK_Southampton" ;;
+      27\ *) server="US_California" ;;
+      28\ *) server="US_East" ;;
+      29\ *) server="US_Midwest" ;;
+      30\ *) server="US_Texas" ;;
+      31\ *) server="US_Florida" ;;
+      32\ *) server="US_Seattle" ;;
+      33\ *) server="US_West" ;;
+      34\ *) server="US_Silicon_Valley" ;;
+      35\ *) server="US_New_York_City" ;;
+      *) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
+    esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
+  fi
+}
+
+do_vpn() {
+	vpn_usr=$(whiptail --title "VPN Configuration" --inputbox "What is your VPN User Name?" 10 60 3>&1 1>&2 2>&3)
+	vpn_pwd=$(whiptail --title "VPN Configuration" --passwordbox "What is your VPN Password" 10 60 3>&1 1>&2 2>&3)
+
+ apt-get install network-manager-openvpn -y
+
+cat <<EOF > /etc/openvpn/login.conf
+$vpn_usr
+$vpn_pwd
+EOF
+
+	chmod 400 /etc/openvpn/login.conf
+	wget https://www.privateinternetaccess.com/openvpn/openvpn.zip
+	unzip openvpn.zip -d openvpn/ 
+
+	cd openvpn
+	for file in *\ *; do mv "$file" "${file// /_}"; done
+	for file in *.ovpn; do
+		sed -i 's/auth-user-pass/auth-user-pass login.conf/g' $file
+		mv "$file" "`basename $file .ovpn`.conf"
+	done
+	mv * /etc/openvpn/
+
+	do_vpn_server
+	sed -i '/#AUTOSTART="home office"/a AUTOSTART="$server"' /etc/default/openvpn
+	cd ~/
+	rm -r openvpn
+}
+
+do_ufw() {
+	cidr=$(whiptail --title "UFW Configuration" --inputbox "What is your network CIDR?" 10 60 "192.168.1.0/24" 3>&1 1>&2 2>&3)
+	apt-get install ufw -y
+	ufw default deny incoming
+	ufw default deny outgoing
+	ufw allow to $cidr
+	ufw allow in from $cidr
+	ufw allow in on tun0 from any to any
+	ufw allow out on tun0 from any to any
+	ufw allow out 1194/udp
+	ufw allow out 53/tcp
+	ufw allow out 53/udp
+}
+
+do_nzbget() {
+	wget http://sourceforge.net/projects/bananapi/files/unrar_5.2.6-1_armhf.deb
+	dpkg -i unrar_5.2.6-1_armhf.deb
+	apt-get install build-essential -y
+	wget rarlab.com/rar/unrarsrc-5.2.6.tar.gz
+	tar -xvf unrarsrc-5.2.6.tar.gz
+	cd unrar
+	make -j$(nproc) -f makefile
+	install -v -m755 unrar /usr/bin
+	wget http://nzbget.net/download/nzbget-latest-bin-linux.run
+	sh nzbget-latest-bin-linux.run --destdir /opt/nzbget
+	rm nzbget-latest-bin-linux.run
+	chown -R pi:pi /opt/nzbget
+	sed -i "/DaemonUsername=/c\DaemonUsername=pi" /opt/nzbget/nzbget.conf
+
+cat <<EOF > /etc/init.d/nzbget
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          NZBGet
+# Required-Start:    $local_fs $remote_fs $network
+# Required-Stop:     $local_fs $remote_fs $network
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: NZBGet
+# Description:       NZBGet for ebook management
+### END INIT INFO
+ 
+ 
+# Documentation available at
+# http://refspecs.linuxfoundation.org/LSB_3.1.0/LSB-Core-generic/LSB-Core-generic/iniscrptfunc.html
+# Debian provides some extra functions though
+. /lib/lsb/init-functions
+ 
+DAEMON_NAME="NZBGet"
+DAEMON_USER=pi
+DAEMON_PATH="nzbget"
+DAEMON_OPTS="-D"
+DAEMON_PWD="/opt/nzbget"
+DAEMON_DESC=$(get_lsb_header_val $0 "Short-Description")
+DAEMON_PID="/var/run/${DAEMON_NAME}.pid"
+DAEMON_NICE=0
+DAEMON_LOG='/var/log/nzbget'
+ 
+[ -r "/etc/default/${DAEMON_NAME}" ] && . "/etc/default/${DAEMON_NAME}"
+ 
+do_start() {
+  local result
+ 
+	pidofproc -p "${DAEMON_PID}" "${DAEMON_PATH}" > /dev/null
+	if [ $? -eq 0 ]; then
+		log_warning_msg "${DAEMON_NAME} is already started"
+		result=0
+	else
+		log_daemon_msg "Starting ${DAEMON_DESC}" "${DAEMON_NAME}"
+		touch "${DAEMON_LOG}"
+		chown $DAEMON_USER "${DAEMON_LOG}"
+		chmod u+rw "${DAEMON_LOG}"
+		if [ -z "${DAEMON_USER}" ]; then
+			start-stop-daemon --start --quiet --oknodo --background \
+				--nicelevel $DAEMON_NICE \
+				--chdir "${DAEMON_PWD}" \
+				--pidfile "${DAEMON_PID}" --make-pidfile \
+				--exec "${DAEMON_PATH}" -- $DAEMON_OPTS
+			result=$?
+		else
+			start-stop-daemon --start --quiet --oknodo --background \
+				--nicelevel $DAEMON_NICE \
+				--chdir "${DAEMON_PWD}" \
+				--pidfile "${DAEMON_PID}" --make-pidfile \
+				--chuid "${DAEMON_USER}" \
+				--exec "${DAEMON_PATH}" -- $DAEMON_OPTS
+			result=$?
+		fi
+		log_end_msg $result
+	fi
+	return $result
+}
+ 
+do_stop() {
+	local result
+ 
+	pidofproc -p "${DAEMON_PID}" "${DAEMON_PATH}" > /dev/null
+	if [ $? -ne 0 ]; then
+		log_warning_msg "${DAEMON_NAME} is not started"
+		result=0
+	else
+		log_daemon_msg "Stopping ${DAEMON_DESC}" "${DAEMON_NAME}"
+		killproc -p "${DAEMON_PID}" "${DAEMON_PATH}"
+		result=$?
+		log_end_msg $result
+		rm "${DAEMON_PID}"
+	fi
+	return $result
+}
+ 
+do_restart() {
+	local result
+	do_stop
+	result=$?
+	if [ $result = 0 ]; then
+		do_start
+		result=$?
+	fi
+	return $result
+}
+ 
+do_status() {
+	local result
+	status_of_proc -p "${DAEMON_PID}" "${DAEMON_PATH}" "${DAEMON_NAME}"
+	result=$?
+	return $result
+}
+ 
+do_usage() {
+	echo $"Usage: $0 {start | stop | restart | status}"
+	exit 1
+}
+ 
+case "$1" in
+start)   do_start;   exit $? ;;
+stop)    do_stop;    exit $? ;;
+restart) do_restart; exit $? ;;
+status)  do_status;  exit $? ;;
+*)       do_usage;   exit  1 ;;
+esac
+EOF
+
+	chmod +x /etc/init.d/nzbget
+	update-rc.d nzbget defaults
+}
+
+do_sonarr() {
+	apt-get install libmono-cil-dev -y
+	wget http://sourceforge.net/projects/bananapi/files/mono_3.10-armhf.deb
+	dpkg -i mono_3.10-armhf.deb
+	apt-get install apt-transport-https -y --force-yes
+	apt-key adv --keyserver keyserver.ubuntu.com --recv-keys FDA5DFFC
+	echo "deb https://apt.sonarr.tv/ master main" | sudo tee -a /etc/apt/sources.list.d/sonarr.list
+	apt-get update
+	apt-get install nzbdrone -y
+	chown -R pi:pi /opt/NzbDrone
+
+cat <<EOF > /etc/init.d/nzbdrone
+#! /bin/sh
+### BEGIN INIT INFO
+# Provides: NzbDrone
+# Required-Start: $local_fs $network $remote_fs
+# Required-Stop: $local_fs $network $remote_fs
+# Should-Start: $NetworkManager
+# Should-Stop: $NetworkManager
+# Default-Start: 2 3 4 5
+# Default-Stop: 0 1 6
+# Short-Description: starts instance of NzbDrone
+# Description: starts instance of NzbDrone using start-stop-daemon
+### END INIT INFO
+
+############### EDIT ME ##################
+# path to app
+APP_PATH=/opt/NzbDrone
+
+# user
+RUN_AS=pi
+
+# path to mono bin
+DAEMON=$(which mono)
+
+# Path to store PID file
+PID_FILE=/var/run/nzbdrone/nzbdrone.pid
+PID_PATH=$(dirname $PID_FILE)
+
+# script name
+NAME=nzbdrone
+
+# app name
+DESC=NzbDrone
+
+# startup args
+EXENAME="NzbDrone.exe"
+DAEMON_OPTS=" "$EXENAME
+
+############### END EDIT ME ##################
+
+NZBDRONE_PID=`ps auxf | grep NzbDrone.exe | grep -v grep | awk '{print $2}'`
+
+test -x $DAEMON || exit 0
+
+set -e
+
+#Look for PID and create if doesn't exist
+if [ ! -d $PID_PATH ]; then
+mkdir -p $PID_PATH
+chown $RUN_AS $PID_PATH
+fi
+
+if [ ! -d $DATA_DIR ]; then
+mkdir -p $DATA_DIR
+chown $RUN_AS $DATA_DIR
+fi
+
+if [ -e $PID_FILE ]; then
+PID=`cat $PID_FILE`
+if ! kill -0 $PID > /dev/null 2>&1; then
+echo "Removing stale $PID_FILE"
+rm $PID_FILE
+fi
+fi
+
+echo $NZBDRONE_PID > $PID_FILE
+
+case "$1" in
+start)
+if [ -z "${NZBDRONE_PID}" ]; then
+echo "Starting $DESC"
+rm -rf $PID_PATH || return 1
+install -d --mode=0755 -o $RUN_AS $PID_PATH || return 1
+start-stop-daemon -d $APP_PATH -c $RUN_AS --start --background --pidfile $PID_FILE --exec $DAEMON -- $DAEMON_OPTS
+else
+echo "NzbDrone already running."
+fi
+;;
+stop)
+echo "Stopping $DESC"
+echo $NZBDRONE_PID > $PID_FILE
+start-stop-daemon --stop --pidfile $PID_FILE --retry 15
+;;
+
+restart|force-reload)
+echo "Restarting $DESC"
+start-stop-daemon --stop --pidfile $PID_FILE --retry 15
+start-stop-daemon -d $APP_PATH -c $RUN_AS --start --background --pidfile $PID_FILE --exec $DAEMON -- $DAEMON_OPTS
+;;
+status)
+# Use LSB function library if it exists
+if [ -f /lib/lsb/init-functions ]; then
+. /lib/lsb/init-functions
+if [ -e $PID_FILE ]; then
+status_of_proc -p $PID_FILE "$DAEMON" "$NAME" && exit 0 || exit $?
+else
+log_daemon_msg "$NAME is not running"
+exit 3
+fi
+
+else
+# Use basic functions
+if [ -e $PID_FILE ]; then
+PID=`cat $PID_FILE`
+if kill -0 $PID > /dev/null 2>&1; then
+echo " * $NAME is running"
+exit 0
+fi
+else
+echo " * $NAME is not running"
+exit 3
+fi
+fi
+;;
+*)
+N=/etc/init.d/$NAME
+echo "Usage: $N {start|stop|restart|force-reload|status}" >&2
+exit 1
+;;
+esac
+
+exit 0
+EOF
+
+	chmod +x /etc/init.d/nzbdrone
+	update-rc.d nzbdrone defaults
+#	reboot
+	apt-get install upstart
+
+cat <<EOF > /etc/init/nzbdrone.conf
+#author "HTPCGuides.com"
+#description "Upstart Script to run Sonarr (Nzbdrone) as a service on Ubuntu/Debian
+
+#Set username for the process. Should probably be what you use for logging in
+setuid pi
+setgid pi
+
+#Set mono directory
+env MONO=/usr/local/bin/mono
+#Set Nzbdrone directory
+env DIR=/opt/NzbDrone
+
+start on runlevel [2345]
+stop on runlevel [016]
+
+#respawn
+
+exec $MONO $DIR/NzbDrone.exe
+EOF
+}
+
+do_couch() {
+	apt-get install git-core libffi-dev libssl-dev zlib1g-dev libxslt1-dev libxml2-dev python python-pip python-dev build-essential -y
+	pip install lxml cryptography pyopenssl
+	git clone http://github.com/RuudBurger/CouchPotatoServer /opt/CouchPotato
+	chown -R pi:pi /opt/CouchPotato
+
+cat <<EOF > 
+CP_HOME=/opt/CouchPotato
+CP_USER=pi
+CP_PIDFILE=/home/pi/.couchpotato.pid
+CP_DATA=/opt/CouchPotato
+EOF
+
+	cp /opt/CouchPotato/init/ubuntu /etc/init.d/couchpotato
+	chmod +x /etc/init.d/couchpotato
+	update-rc.d couchpotato defaults
+}
+
+calc_wt_size
+while true; do
+	FUN=$(whiptail --title "Raspberry Pi Usenet Downloading Configuration Tool" --menu "Setup Options" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT --cancel-button Finish --ok-button Select \
+		"1 RasPi-Config" "Run this if fresh OS install to set up the basics!" \
+		"2 Add Google Name Servers" "Add Google Name Servers because it's a good idea!" \
+		"3 The UPs" "Update & Upgrade your Pi's software before doing anything!" \
+		"4 Open VPN" "Install and Configure your VPN" \
+		"5 UFW" "Install and Configure your Firewall" \
+		"6 NZBGet" "Install the Usenet Downloader" \
+		"7 Sonarr" "Install Usenet TV Show Manager" \
+		"8 Advanced Options" "Configure advanced settings" \
+		"9 About raspi-config" "Information about this configuration tool" \
+		3>&1 1>&2 2>&3)
+		RET=$?
+		if [ $RET -eq 1 ]; then
+			do_finish
+		elif [ $RET -eq 0 ]; then
+			case "$FUN" in
+				1\ *) raspi_config ;;
+				2\ *) do_google ;;
+				3\ *) do_the_ups ;;
+				4\ *) do_vpn ;;
+				5\ *) do_ufw ;;
+				6\ *) do_nzbget ;;
+				7\ *) do_sonarr ;;
+				8\ *) do_couch ;;
+				9\ *) do_about ;;
+				*) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
+			esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
+		else
+		exit 1
+	fi
+done
